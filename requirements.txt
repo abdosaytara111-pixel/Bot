@@ -1,3 +1,1 @@
 highrise-bot-sdk
-flask
-google-generativeai==0.3.1
