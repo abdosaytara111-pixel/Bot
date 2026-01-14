@@ -1,4 +1,4 @@
-from highrise_bot import BaseBot, Highrise
+from highrise import BaseBot, Highrise
 import asyncio
 import os
 
