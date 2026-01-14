@@ -1,8 +1,6 @@
-flask==3.0.1
+flask==3.0.0
 python-dotenv==1.0.0
-highrise-bot-sdk==24.1.0
-google-generativeai==0.8.0
+highrise-bot-sdk==23.1.0
+google-generativeai==0.3.1
 requests==2.31.0
 Werkzeug==3.0.1
-revchatgpt==6.8.6
-pychatgpt==0.4.3.3
