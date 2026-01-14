@@ -1,30 +1,20 @@
 from highrise import BaseBot, Highrise
-import asyncio
-import os
+import asyncio, os
 
-from modules.welcome import WelcomeSystem
-from modules.commands import CommandSystem
-
-class MyBot(BaseBot):
-    def __init__(self):
-        self.welcome = WelcomeSystem(self)
-        self.commands = CommandSystem(self)
-
+class Bot(BaseBot):
     async def on_start(self, session_metadata):
-        print("🚀 Bot started!")
+        print("Bot connected successfully!")
 
     async def on_chat(self, user, message):
-        await self.commands.handle(user, message)
-
-    async def on_user_join(self, user):
-        await self.welcome.send(user)
+        if message == "هلا":
+            await self.highrise.chat(f"أهلاً يا {user.username} 🇪🇬")
 
 async def main():
-    bot = MyBot()
+    bot = Bot()
     hr = Highrise(
         bot=bot,
         token=os.getenv("BOT_TOKEN"),
-        room_id=os.getenv("ROOM_ID")   # 👈 هنا
+        room_id=os.getenv("ROOM_ID")
     )
     await hr.run()
 
