@@ -1,2 +1,2 @@
-highrise-bot-sdk
+git+https://github.com/highriseapp/highrise-python-sdk.git
 python-dotenv
