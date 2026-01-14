@@ -1,2 +1,2 @@
-highrise-bot
+highrise
 python-dotenv
