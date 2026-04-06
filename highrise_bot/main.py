@@ -6822,6 +6822,8 @@ def run_all_bots():
     # Add restart cooldown to prevent spamming restarts during multi-login issues
     # {token: last_stop_timestamp}
     restart_cooldowns = {}
+    # {token: cooldown_duration} — dynamic cooldown per token
+    token_cooldown_override = {}
 
     try:
         while True:
@@ -6843,9 +6845,18 @@ def run_all_bots():
                     token = bot.get("token")
                     if token in used_tokens:
                         del used_tokens[token]
-                    # Set cooldown for this token
-                    # If it stopped normally, use a much shorter cooldown (5s) for ASAP restart
-                    restart_cooldowns[token] = now - (COOLDOWN_SECONDS - 5) if exit_code == 0 else now
+
+                    # Smart cooldown: if bot died within 60 seconds of starting,
+                    # it likely got a do_not_reconnect from Highrise — wait 5 minutes.
+                    # Otherwise use normal short cooldown.
+                    uptime = now - entry.get("start_time", now)
+                    if uptime < 60:
+                        wait = 300  # 5 minutes — server rejected us, cool down hard
+                        print(f"[WARN] Bot '{bot.get('name')}' died after only {int(uptime)}s — waiting 5 minutes before retry.")
+                    else:
+                        wait = COOLDOWN_SECONDS  # normal short cooldown
+                    token_cooldown_override[token] = wait
+                    restart_cooldowns[token] = now
             
             for pid in dead_pids:
                 del running_processes[pid]
@@ -6881,12 +6892,17 @@ def run_all_bots():
                 if not is_force:
                     if token in restart_cooldowns:
                         last_stop = restart_cooldowns[token]
-                        if now - last_stop < COOLDOWN_SECONDS:
-                            # Still in cooldown, skip for now
+                        effective_cooldown = token_cooldown_override.get(token, COOLDOWN_SECONDS)
+                        elapsed = now - last_stop
+                        if elapsed < effective_cooldown:
+                            remaining = int(effective_cooldown - elapsed)
+                            if remaining % 30 == 0 and remaining > 0:
+                                print(f"[WAIT] '{name}' cooldown: {remaining}s remaining.")
                             continue
                         else:
                             # Cooldown expired
                             del restart_cooldowns[token]
+                            token_cooldown_override.pop(token, None)
                 else:
                     # Forced restart: Still wait 3s for session to clear to avoid multi-login
                     if token in restart_cooldowns:
@@ -6932,7 +6948,7 @@ def run_all_bots():
 
                 try:
                     p = subprocess.Popen(cmd, env=env)
-                    running_processes[p.pid] = {"bot": bot, "process": p}
+                    running_processes[p.pid] = {"bot": bot, "process": p, "start_time": time.time()}
                     used_tokens[token] = name
                     time.sleep(1) # Staggered start
                 except Exception as e:
