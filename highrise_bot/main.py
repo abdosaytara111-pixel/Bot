@@ -378,16 +378,7 @@ class MyBot(BaseBot):
         # Ensure settings directory exists
         if not os.path.exists("settings"):
             os.makedirs("settings")
-        self.settings_file = os.path.join("settings", f"settings_{self.room_id}.json")
-        
-        # Migrate old settings if they exist and new one doesn't
-        if not os.path.exists(self.settings_file) and os.path.exists(os.path.join("settings", "settings.json")):
-            import shutil
-            try:
-                shutil.copy(os.path.join("settings", "settings.json"), self.settings_file)
-                print(f"Migrated settings.json to {self.settings_file}")
-            except Exception as e:
-                print(f"Migration error: {e}")
+        self.settings_file = os.path.join("settings", "settings.json")
         self.load_settings()
 
         # Load saved owners
@@ -438,13 +429,10 @@ class MyBot(BaseBot):
         self.chat_stats = self.settings.get("chat_stats", {}) # {username: message_count}
         self.user_stats = self.settings.get("user_stats", {}) # {"username": {"first_seen": timestamp, "last_seen": timestamp}}
         
-        # Level System
-        # Format: {"username": {"xp": 0, "level": 1, "messages": 0, "time_spent": 0}}
-        self.user_levels = self.settings.get("user_levels", {})
-
         # Streak System
         # Format: {"username": {"streak": 1, "last_seen": "YYYY-MM-DD"}}
         self.user_streaks = self.settings.get("user_streaks", {})
+        self.user_gender = self.settings.get("user_gender", {})  # Cache: {username: "male"/"female"/"unknown"}
 
         # Emote System
         self.emotes = {}
@@ -501,6 +489,10 @@ class MyBot(BaseBot):
             print(f"Error loading bot loop emotes: {e}")
             self.bot_loop_emotes = []
 
+        # Override: Set default bot dance to dance-floss only
+        self.bot_loop_emotes = ["dance-floss"]
+        self.bot_emotes_data["dance-floss"] = {"id": "dance-floss", "duration": 8}
+
         # Saved Outfits
         self.saved_outfits = self.settings.get("saved_outfits", {})
 
@@ -545,7 +537,7 @@ class MyBot(BaseBot):
                 "inv_role": "<#FF0000>Invalid role! Use: !rolelist admin/vip/owner",
                 "no_mem": "<#FFFF00>No {role} found.",
                 "role_mem": "👥 <#00FFFF>{role}: <#FF69B4>{members}",
-                "m_pub": "<#00FFFF>✨ PUBLIC COMMANDS ✨\n<#FF69B4>⚠️ Type !sub to unlock everything!\n<#FFFF00>🔹 !sub - <#00FF00>Unlock\n<#FFFF00>🔹 !ping\n<#FFFF00>🔹 !user / !profile / !lb\n<#FFFF00>🔹 !emotelist / !level / !xp",
+                "m_pub": "<#00FFFF>✨ PUBLIC COMMANDS ✨\n<#FF69B4>⚠️ Type !sub to unlock everything!\n<#FFFF00>🔹 !sub - <#00FF00>Unlock\n<#FFFF00>🔹 !ping\n<#FFFF00>🔹 !user / !profile / !lb\n<#FFFF00>🔹 !emotelist / !id",
                 "m_fun": "<#FF69B4>🎭 FUN COMMANDS 🎭\n<#FFFF00>🔹 !rizz / !roast / !flirt\n<#FFFF00>🔹 !joke / !shayari\n<#FFFF00>🔹 !love / !hate\n<#FFFF00>🔹 !lovepercent\n<#FFFF00>🔹 !deathyear\n<#FFFF00>🔹 !stop\n<#FFFF00>🔹 !back",
                 "m_vip": "<#FFD700>👑 VIP COMMANDS 👑\n<#FFFF00>🔹 !vipcost\n<#FFFF00>🔹 !viplist\n<#FFFF00>🔹 !buyvip",
                 "m_mod": "<#00FF00>🛡️ MODERATOR COMMANDS 🛡️\n<#FFFF00>🔸 !kick / !ban / !unban\n<#FFFF00>🔸 !summon / !come / !alleemotes\n<#FFFF00>🔸 !dance / !stopdance / !stopemotes\n<#FFFF00>🔸 !setdancefloor 1/2/on/off\n<#FFFF00>🔸 !set / !setroomname\n<#FFFF00>🔸 !setjoin [message]\n<#FFFF00>🔸 !tip / !tipall / !tipme\n<#FFFF00>🔸 !autotip on/off/status/time/amount\n<#FFFF00>🔸 !sublist\n<#FFFF00>🔸 !vipstatus @username\n<#FFFF00>🔸 !block / !unblock\n<#FFFF00>🔸 !cleartime / !clearchat\n<#FFFF00>🔸 !cashout / !restartbot / !clear data\n<#FFFF00>🔸 !adminlist / !history\n<#FFFF00>🔸 !timeon/off\n<#FFFF00>🔸 !adminmessage [on/off]\n<#FFFF00>🔸 !ownermessage [on/off]\n<#FFFF00>🔸 !startloop / !stoploop",
@@ -566,7 +558,7 @@ class MyBot(BaseBot):
                 "inv_role": "<#FF0000>अमान्य भूमिका! उपयोग करें: !rolelist admin/vip/owner",
                 "no_mem": "<#FFFF00>कोई {role} नहीं मिला।",
                 "role_mem": "👥 <#00FFFF>{role}: <#FF69B4>{members}",
-                "m_pub": "<#00FFFF>✨ सार्वजनिक आदेश ✨\n<#FF69B4>⚠️ सब कुछ अनलॉक करने के लिए !sub लिखें\n<#FFFF00>🔹 !sub - <#00FF00>अनलॉक\n<#FFFF00>🔹 !ping\n<#FFFF00>🔹 !user / !profile / !lb\n<#FFFF00>🔹 !emotelist / !level / !xp",
+                "m_pub": "<#00FFFF>✨ सार्वजनिक आदेश ✨\n<#FF69B4>⚠️ सब कुछ अनलॉक करने के लिए !sub लिखें\n<#FFFF00>🔹 !sub - <#00FF00>अनलॉक\n<#FFFF00>🔹 !ping\n<#FFFF00>🔹 !user / !profile / !lb\n<#FFFF00>🔹 !emotelist / !id",
                 "m_fun": "<#FF69B4>🎭 मजेदार आदेश 🎭\n<#FFFF00>🔹 !rizz / !shayari\n<#FFFF00>🔹 !love / !hate\n<#FFFF00>🔹 !deathyear\n<#FFFF00>🔹 !stop / !back",
                 "m_vip": "<#FFD700>👑 वीआईपी आदेश 👑\n<#FFFF00>🔹 !vipcost\n<#FFFF00>🔹 !viplist\n<#FFFF00>🔹 !buyvip",
                 "m_mod": "<#00FF00>🛡️ मॉडरेटर आदेश 🛡️\n<#FFFF00>🔸 !kick / !ban\n<#FFFF00>🔸 !summon / !come\n<#FFFF00>🔸 !tip / !tipall\n<#FFFF00>🔸 !vipstatus @username",
@@ -833,12 +825,6 @@ class MyBot(BaseBot):
         self.admin_message_enabled = self.settings.get("admin_message_enabled", True)
         self.owner_message_enabled = self.settings.get("owner_message_enabled", True)
 
-        # Leveling System
-        self.user_levels = self.settings.get("user_levels", {}) # {"username": {"xp": 0, "level": 1}}
-        asyncio.create_task(self.run_xp_loop())
-        
-        # VIP Perks Broadcast
-        asyncio.create_task(self.run_vip_perks_broadcast())
         asyncio.create_task(self.run_auto_invite())
         asyncio.create_task(self.run_vip_expiry_check())
 
@@ -969,46 +955,6 @@ class MyBot(BaseBot):
             else:
                 print(f"Chat Error: {e}")
 
-    def calculate_level(self, xp):
-        """Calculate level from XP. Each level requires more XP."""
-        # Level 1: 0-100 XP, Level 2: 100-250 XP, Level 3: 250-450 XP, etc.
-        # Formula: XP needed = 100 * level
-        level = 1
-        xp_needed = 100
-        remaining_xp = xp
-        
-        while remaining_xp >= xp_needed:
-            remaining_xp -= xp_needed
-            level += 1
-            xp_needed = 100 * level
-        
-        return level
-
-    def add_xp(self, username, amount):
-        """Add XP to a user and check for level up."""
-        if username not in self.user_levels:
-            self.user_levels[username] = {"xp": 0, "level": 1, "messages": 0, "time_spent": 0}
-        
-        # Ensure all keys exist for migrated/existing users
-        u_data = self.user_levels[username]
-        if "messages" not in u_data: u_data["messages"] = 0
-        if "time_spent" not in u_data: u_data["time_spent"] = 0
-        if "xp" not in u_data: u_data["xp"] = 0
-        if "level" not in u_data: u_data["level"] = 1
-
-        old_level = u_data["level"]
-        u_data["xp"] += amount
-        new_level = self.calculate_level(u_data["xp"])
-        u_data["level"] = new_level
-        
-        # Save to settings
-        self.settings["user_levels"] = self.user_levels
-        self.save_settings()
-        
-        # Return True if leveled up
-        return new_level > old_level, new_level
-
-
     async def run_emote_loop(self):
         """Background task to keep emotes playing non-stop."""
         while not self.is_shutting_down:
@@ -1132,28 +1078,6 @@ class MyBot(BaseBot):
                     await asyncio.sleep(5)
                 else:
                     print(f"Loop message error: {e}")
-
-    async def run_vip_perks_broadcast(self):
-        """Sends the VIP perks message every 5 minutes."""
-        # Wait a bit before starting first broadcast
-        await asyncio.sleep(30) 
-        while True:
-            try:
-                msg = (
-                    "💎 VIP PERKS 💎\n"
-                    "✨ Type '-buyvip' to unlock:\n\n"
-                    "📍 Summon Access\n"
-                    "🚪 VIP Area Access\n"
-                    "🌟 VIP Badge on Join\n"
-                    "🎵 Unlimited Music (Free)\n"
-                    "🔥 Get VIP Now!"
-                )
-                await self.highrise.chat(msg)
-            except Exception as e:
-                print(f"VIP perks broadcast error: {e}")
-            
-            # 5 minutes = 300 seconds
-            await asyncio.sleep(300)
 
     async def run_vip_expiry_check(self):
         """Periodically checks and removes expired VIP users from the system."""
@@ -1589,7 +1513,7 @@ class MyBot(BaseBot):
                             "<#FFFF00>!user <#800080>- Who is in room?\n"
                             "<#FFFF00>!profile <#800080>- Your stats\n"
                             "<#FFFF00>!emotelist <#800080>- Emote Catalog\n"
-                            "<#FFFF00>!level / !xp <#800080>- Check Level\n"
+                            "<#FFFF00>!id <#800080>- Get Your ID\n"
                             "<#FFFF00>!lb / !lb2 <#800080>- Leaderboards\n"
                             "<#FFFF00>!flash [on/off] <#800080>- Instant TP Mode\n"
                             "<#FFFF00>!info <#800080>- Bot Info"
@@ -2084,52 +2008,6 @@ class MyBot(BaseBot):
             if self.settings_dirty:
                 self._save_to_disk()
 
-    async def update_xp(self, username, amount):
-        if username not in self.user_levels:
-            self.user_levels[username] = {"xp": 0, "level": 1, "messages": 0, "time_spent": 120} # Assume 2 mins from loop
-        
-        data = self.user_levels[username]
-        # Ensure all keys exist
-        if "messages" not in data: data["messages"] = 0
-        if "time_spent" not in data: data["time_spent"] = 0
-        if "xp" not in data: data["xp"] = 0
-        if "level" not in data: data["level"] = 1
-
-        data["xp"] += amount
-        data["time_spent"] += 120 # From XP loop
-        
-        # Level up logic: Level * 100 XP required
-        xp_needed = data["level"] * 100
-        if data["xp"] >= xp_needed:
-            data["xp"] -= xp_needed
-            data["level"] += 1
-            await self.highrise.chat(f"🎊 CONGRATULATIONS @{username}! You leveled up to Level {data['level']}! 🆙")
-        
-        self.settings["user_levels"] = self.user_levels
-        self.save_settings()
-
-    async def run_xp_loop(self):
-        """Give 1 XP every 2 minutes to everyone in the room."""
-        while not self.is_shutting_down:
-            try:
-                await asyncio.sleep(120)
-                if self.is_shutting_down: break
-                
-                room_users = (await self.highrise.get_room_users()).content
-                for user, pos in room_users:
-                    if self.is_shutting_down: break
-                    if user.id != self.bot_id:
-                        await self.update_xp(user.username, 2)
-            except Exception as e:
-                if "closing transport" in str(e).lower():
-                    self.is_shutting_down = True
-                    break
-                if "not in room" in str(e).lower():
-                    await asyncio.sleep(5)
-                else:
-                    print(f"XP loop error: {e}")
-                    await asyncio.sleep(10)
-
     def _save_to_disk(self):
         """Actual synchronous file write."""
         try:
@@ -2143,6 +2021,30 @@ class MyBot(BaseBot):
     def save_settings(self):
         """Mark settings as needing save. Non-blocking."""
         self.settings_dirty = True
+
+    async def detect_gender(self, user_id, username):
+        """Detect gender from outfit items. Returns 'female', 'male', or 'unknown'."""
+        if username in self.user_gender:
+            return self.user_gender[username]
+        try:
+            if self.webapi:
+                resp = await asyncio.wait_for(self.webapi.get_user(user_id), timeout=4.0)
+                if resp and hasattr(resp, 'user') and resp.user and resp.user.outfit:
+                    for item in resp.user.outfit:
+                        iid = (item.item_id or "").lower() if hasattr(item, 'item_id') else ""
+                        if "female" in iid:
+                            self.user_gender[username] = "female"
+                            self.settings["user_gender"] = self.user_gender
+                            self.save_settings()
+                            return "female"
+                        if "male" in iid:
+                            self.user_gender[username] = "male"
+                            self.settings["user_gender"] = self.user_gender
+                            self.save_settings()
+                            return "male"
+        except Exception as e:
+            print(f"[Gender detect] {e}")
+        return "unknown"
 
     async def on_user_join(self, user, position=None, *args, **kwargs):
         print(f"{user.username} joined the room")
@@ -2171,43 +2073,95 @@ class MyBot(BaseBot):
             if self.time_tracking:
                 self.join_times[user.id] = time.time()
 
-            # Custom Welcome Message Logic
-            custom_msg = self.settings.get("custom_welcome_message")
-            if custom_msg:
-                # Calculate visits
-                room_id = self.room_id
-                visit_count = self.user_visits.get(room_id, {}).get(user.username, 1)
+            # Disco Welcome Messages - random gold/silver/icy colors
+            import random as _rnd
+            is_owner = any(o.lower() == user.username.lower() for o in self.OWNERS)
+            is_admin = any(a.lower() == user.username.lower() for a in self.ADMINS) and not is_owner
 
-                # Replace placeholders
-                message = custom_msg.replace('@username', f"@{user.username}")
-                message = message.replace('{username}', user.username)
-                message = message.replace('{room}', self.current_room_name)
-                message = message.replace('{date}', time.strftime("%Y-%m-%d"))
-                message = message.replace('{visits}', str(visit_count))
+            if is_owner:
+                owner_messages = [
+                    f"<#FFD700>👑✨ صاحب البيت وصل ✨👑 @{user.username} <#FFFFFF>الروم كله بيحييك يا مالك 🔥🎊",
+                    f"<#FFD700>🌟💫 المالك نزل والروم اتولع 💫🌟 @{user.username} <#C0C0C0>أهلا بصاحبنا الغالي 👑✨",
+                    f"<#FFD700>👑🔥 @{user.username} <#B0E0E6>المالك رجع والروم اتنور ✨ كل الريحة دي منك يا عسل 🌙💎",
+                    f"<#C0C0C0>💎👑 صاحب البيت حط قدمه @{user.username} <#FFD700>والروم اتحول لجنة على طول 🌟🔥",
+                    f"<#B0E0E6>🌙✨ الملك الحقيقي وصل @{user.username} <#FFD700>كل اللي في الروم بيحييك يا باشا 👑💛",
+                    f"<#FFD700>🎊👑 يا هلا يا هلا بالمالك @{user.username} <#C0C0C0>الروم وحشه منك كتير يا عم 🔥✨",
+                ]
+                await self.highrise.chat(_rnd.choice(owner_messages))
+            elif is_admin:
+                admin_messages = [
+                    f"<#C0C0C0>🛡️💎 المشرف الجامد وصل 💎🛡️ @{user.username} <#FFD700>الروم بقه أأمن وأحلى بيك ✨🌟",
+                    f"<#B0E0E6>❄️🛡️ المشرف @{user.username} <#FFD700>دخل والجو اتحسن على طول 🛡️ أهلا بالعمده 🌟💫",
+                    f"<#FFD700>✨🔥 @{user.username} <#C0C0C0>المشرف الوحيش نزل الروم اتشعل 🔥🛡️ أهلا بيك يا كابتن",
+                    f"<#C0C0C0>💎🛡️ الحارس الأمين وصل @{user.username} <#FFD700>الروم في أيد أمينة دلوقتي 🌟✨",
+                    f"<#FFD700>🌟🛡️ @{user.username} <#B0E0E6>المشرف الكبير حط قدمه والأمان عمّ الروم ❄️💎",
+                    f"<#B0E0E6>✨💙 يا هلا بالمشرف @{user.username} <#FFD700>الروم بقه أحلى بوجودك يا أفندي 🛡️🔥",
+                ]
+                await self.highrise.chat(_rnd.choice(admin_messages))
             else:
-                welcome_template = self.translations.get(self.language, self.translations["english"])["welcome"]
-                message = welcome_template.format(username=user.username)
-            
-            await self.highrise.chat(message)
+                gender = await self.detect_gender(user.id, user.username)
+
+                if gender == "female":
+                    disco_messages = [
+                        f"<#FFD700>🌸✨ دخلت ريحتها فاحت وملت الروم نور 🌸 @{user.username} <#C0C0C0>البنت الجامده ورجعت 💎🔥",
+                        f"<#C0C0C0>❄️💫 القمر وصل ❄️ @{user.username} <#FFD700>نورتي الروم يا عسلة وحشتينا كتير 🌙💛",
+                        f"<#FFD700>👸🌹 المزة وصلت @{user.username} <#B0E0E6>الروم كان وحش من غيرك يا بنت الأصول 🌺✨",
+                        f"<#B0E0E6>💫🌸 @{user.username} <#FFD700>دخلت الجو اتغير وريحة العطر ملت الروم 🌺🎊",
+                        f"<#FFD700>🌟💖 العسلة وصلت @{user.username} <#C0C0C0>الروم اتحول لجنة من لحظة دخولك 💛🌸",
+                        f"<#C0C0C0>🦋✨ @{user.username} <#FFD700>دخلت الفراشة الجميلة والروم اتنور زي الشمس 🌸💎",
+                        f"<#FFD700>🌹👑 ست الكل وصلت @{user.username} <#B0E0E6>أهلا بأجمل واحدة في الروم 💎❄️",
+                        f"<#B0E0E6>💖🌙 @{user.username} <#FFD700>البنت الحلوة نزلت الروم اتشعل بالأنوار 🎊✨",
+                        f"<#FFD700>🌙🌟 @{user.username} <#C0C0C0>دخلت القمر والروم بقه أحلى بمية ضعف 💫🌸",
+                        f"<#C0C0C0>✨🌺 @{user.username} <#FFD700>يا بنت الذوق الروم وحشه منك كتير 🌹❄️💖",
+                        f"<#FFD700>💛🎊 حبيبة الروم وصلت @{user.username} <#B0E0E6>كلنا كنا مستنيينك يا قمر 🌙✨",
+                        f"<#B0E0E6>🌸💎 @{user.username} <#FFD700>نزلت وريحة الفل ملت الروم أهلا بالغالية 🌺💖",
+                        f"<#FFD700>👑🌟 @{user.username} <#C0C0C0>الأميرة وصلت الروم بقه كامل بيكي يا ست 🌸✨",
+                        f"<#C0C0C0>❄️🦋 @{user.username} <#FFD700>دخلت وقلبنا اتبسط الروم اتحيا بيكي 💛🌹",
+                        f"<#FFD700>🔥🌸 @{user.username} <#B0E0E6>البنت الوحيشة نزلت والروم اتولع نار وعطر 💎✨",
+                    ]
+                elif gender == "male":
+                    disco_messages = [
+                        f"<#FFD700>🔥💪 الواد الوحيش وصل @{user.username} <#C0C0C0>الروم اتشعل يا عم 🌟✨",
+                        f"<#C0C0C0>❄️👊 الكابتن نزل ❄️ @{user.username} <#FFD700>أهلا بالراجل الجامد في الروم 🔥💎",
+                        f"<#FFD700>👑⚡ الملك وصل @{user.username} <#B0E0E6>الروم كان وحش من غيرك يا معلم 🌟💪",
+                        f"<#B0E0E6>💫🦁 @{user.username} <#FFD700>دخل الأسد الروم اتغير والجو اتحسن 💪🔥",
+                        f"<#FFD700>⚡🌟 @{user.username} <#C0C0C0>نزل الفحل والروم اتولع من أوله لآخره 🔥💥",
+                        f"<#C0C0C0>🦁✨ الأسد وصل @{user.username} <#FFD700>بركة في مجيئك يا صاحبي 💛🌟",
+                        f"<#FFD700>🌟💎 @{user.username} <#B0E0E6>الراجل الجامد رجع الروم بقه أحلى ❄️💪",
+                        f"<#B0E0E6>🔥💥 @{user.username} <#FFD700>دخل والروم اتجنن أهلا بأحلى ناس 🌟⚡",
+                        f"<#FFD700>⚡🎊 يا هلا يا هلا @{user.username} <#C0C0C0>الكابتن وصل الروم اتغير 🔥💪",
+                        f"<#C0C0C0>💫👑 @{user.username} <#FFD700>العبد الصالح نزل الروم اتنور ✨🌙",
+                        f"<#FFD700>🏆💛 حبيب الروم وصل @{user.username} <#B0E0E6>كنا مستنيينك يا صاحبي 🌟💎",
+                        f"<#B0E0E6>❄️🔥 @{user.username} <#FFD700>دخل وقلبنا اتبسط الروم اتحيا بيك 💪✨",
+                        f"<#FFD700>🌟🎊 @{user.username} <#C0C0C0>الباشا وصل الروم بقه كامل بيك يا عم 🔥💥",
+                        f"<#C0C0C0>💎⚡ @{user.username} <#FFD700>الراجل الكبير نزل وكل الروم بيحييك 🌟🦁",
+                        f"<#FFD700>🔥👊 @{user.username} <#B0E0E6>الجامد وصل والروم اتفرح بيك يا معلم ❄️💫",
+                    ]
+                else:
+                    disco_messages = [
+                        f"<#FFD700>✨🎊 دخلت ريحتها فاحت وملت الروم نور ✨ @{user.username} <#C0C0C0>ورجعت الروم 🔥💫",
+                        f"<#C0C0C0>❄️💎 البت الجامده وصلت ❄️ @{user.username} <#FFD700>نور الروم يا قمر 🌟🌸",
+                        f"<#FFD700>👑🌟 المز وصل العسل بتاعنا @{user.username} <#B0E0E6>الروم كان وحش من غيرك 🌺✨",
+                        f"<#B0E0E6>💫🎊 @{user.username} <#FFD700>وصل الروم اتولع 🌟 الريحة فاحت والجو اتغير ✨🔥",
+                        f"<#FFD700>🌟💛 العسل وصل @{user.username} <#C0C0C0>نور الروم الروم كان وحش من غيرك 💎🌸",
+                        f"<#C0C0C0>💎❄️ @{user.username} <#FFD700>دخل وريحته فاحت الروم اتحول لجنة 🌺✨",
+                        f"<#FFD700>🔥⚡ الواد الوحيش @{user.username} <#B0E0E6>وصل الروم اتشعل 🔥💫",
+                        f"<#B0E0E6>🌙💙 @{user.username} <#FFD700>نزل الروم الديم اتحسن والجو بقه تمام 💎🌟",
+                        f"<#FFD700>✨🎊 @{user.username} <#C0C0C0>وصل وسط الأنوار الروم اتجنن 🌸💖",
+                        f"<#C0C0C0>🌸💖 @{user.username} <#FFD700>دخل والدنيا بقت أحلى يا روح القلب ✨🌺",
+                        f"<#FFD700>🌺🌟 حبيب الروم وصل @{user.username} <#B0E0E6>كنا مستنيينك كتير ❄️💫",
+                        f"<#B0E0E6>💫🎊 @{user.username} <#FFD700>نزل والروم اتفرح وكل الناس بتحييك 🌟🔥",
+                        f"<#FFD700>⚡💥 @{user.username} <#C0C0C0>وصل الجامد والروم اتولع من أوله لآخره 🌟✨",
+                        f"<#C0C0C0>🌙❄️ @{user.username} <#FFD700>دخل والقمر بقه أقرب الروم اتنور 💎💛",
+                        f"<#FFD700>🎊🔥 يا هلا يا هلا @{user.username} <#B0E0E6>وصل الأحلى الروم اتشعل 🌸✨",
+                    ]
+                await self.highrise.chat(_rnd.choice(disco_messages))
 
             # Auto Heart Reaction
             try:
                 await self.highrise.react("heart", user.id)
             except Exception as e:
                 print(f"Error sending heart reaction to {user.username}: {e}")
-            
-            # VIP Join Message
-            is_vip_msg_sent = False
-            if self.vip_message_enabled and user.username in self.VIPS:
-                await self.highrise.chat(f"👑 Welcome VIP @{user.username}! Everyone please welcome our VIP! 👑")
-                is_vip_msg_sent = True
-            
-            # Owner/Admin Join Message (Only if VIP message not already sent, to avoid spam)
-            if not is_vip_msg_sent:
-                if self.owner_message_enabled and user.username in self.OWNERS:
-                    await self.highrise.chat(f"👤 OWNER @{user.username} has entered the room! Welcome! 👑")
-                elif self.admin_message_enabled and user.username in self.ADMINS and user.username not in self.OWNERS:
-                    await self.highrise.chat(f"🛡️ ADMIN @{user.username} has entered the room! 🛡️")
             
             # Track Initial Position
             if isinstance(position, Position):
@@ -2302,20 +2256,6 @@ class MyBot(BaseBot):
             self.chat_stats[user.username] = self.chat_stats.get(user.username, 0) + 1
             self.settings["chat_stats"] = self.chat_stats
             
-            # Level System: Award XP for chatting
-            try:
-                # Award 5 XP per message
-                leveled_up, new_level = self.add_xp(user.username, 5)
-                
-                # Track message count (add_xp ensures key existence, but we increment here)
-                self.user_levels[user.username]["messages"] += 1
-                
-                # Announce level up
-                if leveled_up:
-                    await self.highrise.chat(f"🎉 <#FFD700>LEVEL UP! <#FFFFFF>@{user.username} <#00FF00>reached Level {new_level}! 🌟")
-            except Exception as e:
-                print(f"Level system error: {e}")
-
             # Track Command Usage
             if message.startswith("!"):
                 self.command_usage[user.username] = self.command_usage.get(user.username, 0) + 1
@@ -2365,6 +2305,10 @@ class MyBot(BaseBot):
                 return
 
 
+            elif msg_lower == "!id":
+                await self.highrise.chat(f"<#FFD700>🪪 @{user.username} <#C0C0C0>الـ ID بتاعك هو: <#B0E0E6>{user.id}")
+                return
+
             elif msg_lower == "!sub":
                 # Public sub command for convenience
                 # Check if already subscribed
@@ -2413,7 +2357,9 @@ class MyBot(BaseBot):
                 is_emote_name = True
             
             is_any_cmd = is_start_cmd or is_digit or is_emote_name or msg_lower in ["stop", "stop emote"]
-            bypass_cmds = ["!sub", "!menu", "!setting", "!help", "!ping", "emotelist", "!autotip", "!stop", "stop", "stop emote", "!stop emote", "!buyvip", "!buy vip", "!flash", "!mytickets", "!تذاكري", "!تذكرتي", "!رصيدي", "!radio", "!راديو", "!مكانك", "مكانك", "!موقفك", "موقفك"]
+            bypass_cmds = ["!sub", "!id", "!menu", "!setting", "!help", "!ping", "emotelist", "!autotip", "!stop", "stop", "stop emote", "!stop emote", "!buyvip", "!buy vip", "!flash", "!mytickets", "!تذاكري", "!تذكرتي", "!رصيدي", "!radio", "!راديو", "!مكانك", "مكانك", "!موقفك", "موقفك"]
+            if msg_lower.startswith("h ") and (user.username in self.OWNERS or user.username in self.admins):
+                bypass_cmds.append("h ")
             
 
             # Check if user is subscribed (handle both string and dict formats)
@@ -3205,7 +3151,7 @@ class MyBot(BaseBot):
                         "<#FFFF00>!user <#800080>- Who is in room?\n"
                         "<#FFFF00>!profile <#800080>- Your stats\n"
                         "<#FFFF00>!emotelist <#800080>- Emote Catalog\n"
-                        "<#FFFF00>!level / !xp <#800080>- Check Level\n"
+                        "<#FFFF00>!id <#800080>- Get Your ID\n"
                         "<#FFFF00>!lb / !lb2 <#800080>- Leaderboards\n"
                         "<#FFFF00>!flash [on/off] <#800080>- Instant TP Mode\n"
                     )))
@@ -3532,56 +3478,6 @@ class MyBot(BaseBot):
                     await self.highrise.chat("❌ Admin only!")
 
 
-            elif msg_lower == "!level" or msg_lower.startswith("!level "):
-                # Check own level or another user's level
-                target_user = user.username
-                if len(message.split()) > 1:
-                    target_user = message.split()[1].replace("@", "")
-                
-                if target_user in self.user_levels:
-                    data = self.user_levels[target_user]
-                    level = data["level"]
-                    xp = data["xp"]
-                    messages = data.get("messages", 0)
-                    
-                    # Calculate XP needed for next level
-                    xp_for_current = sum(100 * i for i in range(1, level))
-                    xp_for_next = sum(100 * i for i in range(1, level + 1))
-                    xp_progress = xp - xp_for_current
-                    xp_needed = xp_for_next - xp_for_current
-                    
-                    await self.highrise.chat(
-                        f"📊 <#00FFFF>@{target_user}'s Level: <#FFD700>{level} 🌟\n"
-                        f"<#FFFFFF>XP: <#00FF00>{xp_progress}/{xp_needed} <#888888>({xp} total)\n"
-                        f"<#FFFFFF>Messages: <#FFFF00>{messages} 💬"
-                    )
-                else:
-                    await self.highrise.chat(f"❌ @{target_user} hasn't earned any XP yet!")
-
-            elif msg_lower == "!xp":
-                # Check own XP stats (same as !level but specifically requested as !xp)
-                target_user = user.username
-                if target_user in self.user_levels:
-                    data = self.user_levels[target_user]
-                    level = data["level"]
-                    xp = data["xp"]
-                    messages = data.get("messages", 0)
-                    
-                    # Calculate XP needed for next level
-                    xp_for_current = sum(100 * i for i in range(1, level))
-                    xp_for_next = sum(100 * i for i in range(1, level + 1))
-                    xp_progress = xp - xp_for_current
-                    xp_needed = xp_for_next - xp_for_current
-                    
-                    await self.highrise.chat(
-                        f"📊 <#00FFFF>@{target_user}'s XP Stats:\n"
-                        f"<#FFD700>Level: {level} 🌟\n"
-                        f"<#FFFFFF>Total XP: {xp}\n"
-                        f"<#00FF00>Progress: {xp_progress}/{xp_needed} to Level {level+1}"
-                    )
-                else:
-                    await self.highrise.chat(f"❌ @{target_user}, you haven't earned any XP yet! Chat more to level up.")
-
             elif msg_lower == "!stats":
                 target_user = user.username
                 
@@ -3596,14 +3492,8 @@ class MyBot(BaseBot):
                 msgs = self.chat_stats.get(target_user, 0)
                 cmds = self.command_usage.get(target_user, 0)
                 
-                # 3. Level Info
-                level_info = ""
-                if target_user in self.user_levels:
-                    lvl = self.user_levels[target_user]["level"]
-                    level_info = f" | 🌟 Lvl {lvl}"
-                
                 msg = (
-                    f"📊 <#00FFFF>Stats for @{target_user}{level_info}\n"
+                    f"📊 <#00FFFF>Stats for @{target_user}\n"
                     f"<#FFFFFF>🕒 Time: <#FFFF00>{hours}h {mins}m\n"
                     f"<#FFFFFF>💬 Msgs: <#FFFF00>{msgs}\n"
                     f"<#FFFFFF>🤖 Cmds: <#FFFF00>{cmds}"
@@ -4107,6 +3997,26 @@ class MyBot(BaseBot):
                 return
 
             # --- Specific Reaction Spam ---
+            elif msg_lower.startswith("h ") and (user.username in self.OWNERS or user.username in self.admins):
+                # Shortcut: h username  →  send 25 hearts
+                target_name = message.split(None, 1)[1].strip().replace("@", "")
+                try:
+                    room_users = (await self.highrise.get_room_users()).content
+                    target_user = next((u for u, _ in room_users if u.username.lower() == target_name.lower()), None)
+                    if target_user:
+                        await self.highrise.chat(f"❤️ Sending 25 hearts to {target_user.username}...")
+                        for _ in range(25):
+                            try:
+                                await self.highrise.react("heart", target_user.id)
+                                await asyncio.sleep(0.4)
+                            except: break
+                        await self.highrise.chat(f"❤️ Done!")
+                    else:
+                        await self.highrise.chat(f"User @{target_name} not found.")
+                except Exception as e:
+                    print(f"Error in h-hearts: {e}")
+                return
+
             elif msg_lower.startswith(("!heart ", "!wink ", "!thumb ", "!wave ", "!clap ")):
                 # Usage: !heart @user [count]
                 parts = message.split()
@@ -6785,7 +6695,7 @@ class MyBot(BaseBot):
             print(f"on_channel error: {e}")
 # --- MANAGER LOGIC (CONSOLIDATED) ---
 LOCK_FILE = "manager.lock"
-COOLDOWN_SECONDS = 30 
+COOLDOWN_SECONDS = 5 
 
 def cleanup_orphaned_processes():
     """Kills any existing highrise bot processes to prevent multi-login issues on startup."""
