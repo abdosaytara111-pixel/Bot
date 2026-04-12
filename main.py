@@ -41,8 +41,14 @@ class BotRadio:
     async def _search(self, query):
         """Search YouTube using yt-dlp and return top results."""
         try:
+            import sys, shutil
+            ytdlp_cmd = shutil.which("yt-dlp") or shutil.which(
+                "/home/container/.local/bin/yt-dlp"
+            ) or [sys.executable, "-m", "yt_dlp"]
+            if isinstance(ytdlp_cmd, str):
+                ytdlp_cmd = [ytdlp_cmd]
             proc = await asyncio.create_subprocess_exec(
-                "yt-dlp",
+                *ytdlp_cmd,
                 "--flat-playlist",
                 "--no-warnings",
                 "--dump-json",
