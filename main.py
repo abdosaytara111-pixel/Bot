@@ -39,26 +39,41 @@ class BotRadio:
         self._skip_event = asyncio.Event()
 
     async def _search(self, query):
-        """Search SoundCloud using yt-dlp."""
+        """Search YouTube using yt-dlp and return top results."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "yt-dlp", "--flat-playlist", "--no-warnings",
-                "--print", "%(title)s|||%(webpage_url)s|||%(uploader)s|||%(duration)s",
-                f"scsearch5:{query}",
+                "yt-dlp",
+                "--flat-playlist",
+                "--no-warnings",
+                "--dump-json",
+                f"ytsearch5:{query}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=40)
             results = []
             for line in stdout.decode(errors="ignore").strip().split("\n"):
-                parts = line.split("|||")
-                if len(parts) >= 2 and parts[1].strip().startswith("http"):
-                    results.append({
-                        "title": parts[0].strip(),
-                        "url": parts[1].strip(),
-                        "uploader": parts[2].strip() if len(parts) > 2 else "",
-                        "duration": float(parts[3].strip()) if len(parts) > 3 and parts[3].strip().replace(".","").isdigit() else 0,
-                    })
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    url = data.get("url") or data.get("webpage_url") or ""
+                    title = data.get("title") or data.get("fulltitle") or ""
+                    uploader = data.get("uploader") or data.get("channel") or ""
+                    duration = data.get("duration") or 0
+                    if title and url:
+                        if not url.startswith("http"):
+                            url = f"https://www.youtube.com/watch?v={url}"
+                        results.append({
+                            "title": title,
+                            "url": url,
+                            "uploader": uploader,
+                            "duration": float(duration) if duration else 0,
+                        })
+                except Exception:
+                    continue
+            print(f"[Radio] Search '{query}' → {len(results)} results")
             return results
         except Exception as e:
             print(f"[Radio] Search error: {e}")
