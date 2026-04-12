@@ -21,6 +21,133 @@ try:
         sys.stdout.reconfigure(encoding='utf-8')
 except: pass
 
+
+class BotRadio:
+    """نظام راديو مدمج داخل البوت - يشغل مع البوت بدون سيرفر خارجي."""
+
+    def __init__(self):
+        self.queue = []      # [{title, url, uploader, duration, requested_by}]
+        self.history = []    # previous songs
+        self.current = None
+        self.is_playing = False
+        self._skip_event = None
+        self._bot = None
+        self._loop_task = None
+
+    def set_bot(self, bot):
+        self._bot = bot
+        self._skip_event = asyncio.Event()
+
+    async def _search(self, query):
+        """Search SoundCloud using yt-dlp."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "yt-dlp", "--flat-playlist", "--no-warnings",
+                "--print", "%(title)s|||%(webpage_url)s|||%(uploader)s|||%(duration)s",
+                f"scsearch5:{query}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            results = []
+            for line in stdout.decode(errors="ignore").strip().split("\n"):
+                parts = line.split("|||")
+                if len(parts) >= 2 and parts[1].strip().startswith("http"):
+                    results.append({
+                        "title": parts[0].strip(),
+                        "url": parts[1].strip(),
+                        "uploader": parts[2].strip() if len(parts) > 2 else "",
+                        "duration": float(parts[3].strip()) if len(parts) > 3 and parts[3].strip().replace(".","").isdigit() else 0,
+                    })
+            return results
+        except Exception as e:
+            print(f"[Radio] Search error: {e}")
+            return []
+
+    async def add(self, query, requested_by):
+        """Search and add song to queue. Returns (song, was_already_playing) or None."""
+        results = await self._search(query)
+        if not results:
+            return None
+        song = results[0]
+        song["requested_by"] = requested_by
+        self.queue.append(song)
+        was_playing = self.is_playing
+        if not self.is_playing:
+            self._loop_task = asyncio.create_task(self._play_loop())
+        return song, was_playing
+
+    async def _announce(self, song):
+        if not self._bot:
+            return
+        dur = song.get("duration", 0)
+        mins, secs = int(dur) // 60, int(dur) % 60
+        dur_str = f"{mins}:{secs:02d}" if dur else "؟"
+        try:
+            await self._bot.highrise.chat(
+                f"<#FF4500>🎵 الآن يعزف في ديسكو مصر!\n"
+                f"<#FFD700>🎶 {song['title'][:50]}\n"
+                f"<#00CED1>👤 {song.get('uploader','')[:30]}\n"
+                f"<#FFFFFF>⏱ {dur_str}  |  طلب: @{song['requested_by']}\n"
+                f"<#C0C0C0>🔗 {song['url']}"
+            )
+        except Exception as e:
+            print(f"[Radio] Announce error: {e}")
+
+    async def _play_loop(self):
+        self.is_playing = True
+        while self.queue:
+            song = self.queue.pop(0)
+            self.current = song
+            self._skip_event.clear()
+            await self._announce(song)
+            self.history.append(song)
+            if len(self.history) > 20:
+                self.history.pop(0)
+            duration = max(30, int(song.get("duration", 180)))
+            try:
+                await asyncio.wait_for(self._skip_event.wait(), timeout=duration)
+            except asyncio.TimeoutError:
+                pass
+        self.current = None
+        self.is_playing = False
+        if self._bot:
+            try:
+                await self._bot.highrise.chat("<#C0C0C0>📻 انتهت القائمة. أضف أغاني بـ !p اسم الأغنية")
+            except:
+                pass
+
+    def skip(self):
+        """Skip current song."""
+        if self._skip_event:
+            self._skip_event.set()
+
+    async def previous(self):
+        """Go back to previous song."""
+        if not self.history:
+            return None
+        prev = self.history.pop()
+        if self.current:
+            self.queue.insert(0, self.current)
+        self.queue.insert(0, prev)
+        self.skip()
+        return prev
+
+    def get_queue_text(self):
+        if not self.queue and not self.current:
+            return "<#C0C0C0>📻 القائمة فاضية\n<#FFFFFF>اضيف أغاني بـ !p اسم الأغنية"
+        lines = []
+        if self.current:
+            lines.append(f"<#FF4500>🎵 يعزف الآن: {self.current['title'][:40]}")
+        if self.queue:
+            lines.append(f"<#FFD700>📋 القائمة ({len(self.queue)}):")
+            for i, s in enumerate(self.queue[:5], 1):
+                lines.append(f"<#FFFFFF>{i}. {s['title'][:35]}")
+            if len(self.queue) > 5:
+                lines.append(f"<#C0C0C0>...و {len(self.queue)-5} أغاني أخرى")
+        return "\n".join(lines)
+
+
 class CustomWebAPI:
     def __init__(self, token=None):
         self.token = token
@@ -508,6 +635,10 @@ class MyBot(BaseBot):
         self.dance_floor_mode = False # Default to False (Use ALL Emotes)
         self.following_user = None # User to follow
         asyncio.create_task(self.run_follow_loop())
+
+        # Radio System
+        self.radio = BotRadio()
+        self.radio.set_bot(self)
         
         # Store current room ID (will be set on first user join)
         self.current_room_id = None
@@ -988,7 +1119,7 @@ class MyBot(BaseBot):
                                 await asyncio.sleep(5)
                                 break
                             self.looping_users.pop(user_id, None)
-                await asyncio.sleep(7)
+                await asyncio.sleep(12)
             except Exception as e:
                 if "closing transport" in str(e).lower():
                     self.is_shutting_down = True
@@ -1312,8 +1443,8 @@ class MyBot(BaseBot):
                     for uid in users_to_remove:
                         del user_emote_indices[uid]
                     
-                    # Wait for emote duration (approx 6-8s) before next cycle
-                    await asyncio.sleep(8)
+                    # Wait for emote duration before next cycle
+                    await asyncio.sleep(15)
                 else:
                     # Clear tracking when dance floor is inactive
                     user_emote_indices.clear()
@@ -2048,59 +2179,68 @@ class MyBot(BaseBot):
                 message = message.replace('{room}', self.current_room_name)
                 message = message.replace('{date}', time.strftime("%Y-%m-%d"))
                 message = message.replace('{visits}', str(visit_count))
-            elif user.id == "6805a4cd50458cdb77eedf49":
-                special_meedo = [
-                    f"<#FFD700>👑 يا سلام! ميدو الأسطورة وصل لـ سهره الملوك! 🎉 أهلاً بالغالي @{user.username}!",
-                    f"<#FF4500>🔥 يا هلا يا ميدو! سهره الملوك ما كانت ناقصة غير وجودك! 💫 @{user.username}",
-                    f"<#DA70D6>👑 الملك وصل! @{user.username} في سهره الملوك وكلنا مبسوطين! 🎊",
-                    f"<#00FF7F>✨ ميدو جاء وكملت السهرة! أهلاً وسهلاً @{user.username} في مكانك الصح! 🎶",
-                    f"<#1E90FF>💙 يا أهلاً بميدو! @{user.username} زين الحضور في سهره الملوك! 👑",
-                ]
+            elif user.username.lower() in [o.lower() for o in self.OWNERS]:
                 import random as _r
+                owner_welcomes = [
+                    f"<#FF4500>🔥👑 صاحب الروم @{user.username} وصل! <#FFD700>ديسكو مصر مستنياك يا أسطورة! 🎉",
+                    f"<#FFD700>👑 يا هلا يا @{user.username}! <#FF6600>🔥 ملك ديسكو مصر رجع لبيته! 🎊",
+                    f"<#FFFFFF>⭐ @{user.username} جاء! <#C0C0C0>🌟 صاحب الروم نوّر ديسكو مصر! <#FFD700>👑",
+                    f"<#00CED1>❄️ @{user.username} وصل! <#FFD700>👑 <#FF4500>🔥 الأوضة كانت ناقصة صاحبها! 💫",
+                    f"<#FF6600>🔥 يا سلام! <#FFFFFF>صاحب الروم @{user.username}! <#FFD700>👑 ديسكو مصر بيك تكتمل! 🎶",
+                ]
+                message = _r.choice(owner_welcomes)
+            elif user.id == "6805a4cd50458cdb77eedf49":
+                import random as _r
+                special_meedo = [
+                    f"<#FFD700>👑 يا سلام! ميدو الأسطورة وصل لـ ديسكو مصر! 🎉 أهلاً بالغالي @{user.username}!",
+                    f"<#FF4500>🔥 يا هلا يا ميدو! ديسكو مصر ما كانت ناقصة غير وجودك! 💫 @{user.username}",
+                    f"<#00CED1>❄️ الملك وصل! @{user.username} في ديسكو مصر وكلنا مبسوطين! 🎊",
+                    f"<#FFFFFF>⭐ ميدو جاء وكملت السهرة! أهلاً وسهلاً @{user.username} في مكانك الصح! 🎶",
+                    f"<#C0C0C0>🌟 يا أهلاً بميدو! @{user.username} زين الحضور في ديسكو مصر! <#FFD700>👑",
+                ]
                 message = _r.choice(special_meedo)
             elif user.id == "658f83c9a32f0ae61c072a6f":
+                import random as _r
                 special_aboreda = [
-                    f"<#FFD700>👑 أبو رضا وصل لـ سهره الملوك! يا هلا بالأصيل @{user.username}! 🎊",
-                    f"<#FF6347>🌟 يا مرحبا يا أبو رضا! @{user.username} سهره الملوك بيك أجمل! 💫",
-                    f"<#00CED1>✨ الحضور الكريم وصل! @{user.username} أهلاً بيك في سهره الملوك! 👑",
-                    f"<#DA70D6>🎶 أبو رضا في الدار! @{user.username} يسعد سهرتنا وجودك! 🎉",
-                    f"<#32CD32>💚 يا هلا يا أبو رضا! @{user.username} سهره الملوك ما استوت إلا بيك! 🔥",
+                    f"<#FFD700>👑 أبو رضا وصل لـ ديسكو مصر! يا هلا بالأصيل @{user.username}! 🎊",
+                    f"<#FF4500>🔥 يا مرحبا يا أبو رضا! @{user.username} ديسكو مصر بيك أجمل! 💫",
+                    f"<#00CED1>❄️ الحضور الكريم وصل! @{user.username} أهلاً بيك في ديسكو مصر! <#FFD700>👑",
+                    f"<#FFFFFF>⭐ أبو رضا في الدار! @{user.username} يسعد سهرتنا وجودك! 🎉",
+                    f"<#C0C0C0>🌟 يا هلا يا أبو رضا! @{user.username} ديسكو مصر ما استوت إلا بيك! <#FF4500>🔥",
                 ]
                 message = _r.choice(special_aboreda)
             else:
                 all_greetings = [
-                    # 🇪🇬 مصرية
-                    f"<#FFD700>🎉 أهلاً وسهلاً @{user.username} في سهره الملوك! يلا استمتع معانا 🎶",
-                    f"<#FF69B4>🌟 @{user.username} نوّر سهره الملوك! حللت أهلاً وحللت سهلاً 💫",
-                    f"<#00FF7F>🎊 يا مرحبا @{user.username}! سهره الملوك بتتشرف بيك 👑",
-                    f"<#1E90FF>✨ @{user.username} وصل! سهره الملوك بقت أحلى بوجودك 😍",
-                    f"<#FF4500>🔥 يا هلا يا @{user.username}! في سهره الملوك كلنا ملوك 👑🎉",
-                    f"<#DA70D6>💜 @{user.username} دخل! سهره الملوك مش هتتكمل إلا بيك 🎶",
-                    f"<#00CED1>💎 أهلاً @{user.username}! انت في أجمل سهرة في هايرايز - سهره الملوك! 🌙",
-                    f"<#ADFF2F>🎵 @{user.username} نوّر المكان! سهره الملوك في أحسن حالاتها دلوقتي 🎊",
-                    f"<#FF1493>🌸 يا هلا بـ@{user.username}! تفضل استمتع في سهره الملوك 💃",
-                    f"<#FFA500>🥳 @{user.username} وصل! سهره الملوك مستنياك من زمان 🎉",
-                    f"<#7B68EE>👑 حياك الله @{user.username}! سهره الملوك ترحب بيك أحسن ترحيب 🌟",
-                    f"<#32CD32>💚 @{user.username} جاء! سهره الملوك معاك هتبقى أحلى 🎶",
-                    f"<#FF6347>🎤 يا أهلاً يا @{user.username}! في سهره الملوك كل حد غالي 💛",
-                    f"<#FFD700>🌙 @{user.username} نوّر! سهره الملوك دايما بخير وانت بين ضهرانينا 🎊",
-                    f"<#FF69B4>💖 @{user.username}! أهلاً بيك في سهره الملوك! الجو هنا ولا أجمل 🌟",
-                    # 🇸🇦 سعودية
-                    f"<#00D4FF>👑 حياك الله @{user.username}! سهره الملوك تشرفت بحضورك 🌙",
-                    f"<#FFD700>🌟 يا هلا والله @{user.username}! ورّيت علينا في سهره الملوك 🎉",
-                    f"<#FF4500>🎊 أهلاً وسهلاً @{user.username}! سهره الملوك ترحب بالغالي والكريم 💫",
-                    f"<#7B68EE>💜 حياك ربي @{user.username}! سهره الملوك ما كانت ناقصة غيرك 👑",
-                    f"<#32CD32>✨ يا مرحبا @{user.username}! الله يسعدك زي ما سعدت سهره الملوك بوجودك 🌟",
-                    f"<#FF69B4>🎶 يا هلا @{user.username}! انت في سهره الملوك والكل مرحب فيك 💎",
-                    f"<#FFA500>🔥 حياك الله @{user.username}! سهره الملوك كل يوم أحلى والحين أحلى بوجودك 🎊",
-                    f"<#1E90FF>💙 @{user.username} وصل! الله يبارك فيك وفي سهره الملوك 🌙",
-                    f"<#DA70D6>👑 أهلاً @{user.username}! سهره الملوك ملكها الأصيل رجع 🎉",
-                    f"<#00CED1>🌟 يا هلا @{user.username}! تفضل وانبسط في سهره الملوك 💃",
-                    f"<#ADFF2F>🎵 @{user.username} نوّر! سهره الملوك مع كل ضيف تصير أجمل 🌸",
-                    f"<#FF6347>💛 حياك الله @{user.username}! ربع سهره الملوك كلهم سعادتهم بيك 🎊",
-                    f"<#FFD700>🥳 يا مرحبا @{user.username}! الله يعطيك العافية وانت تزيّن سهره الملوك 👑",
-                    f"<#FF1493>🌙 @{user.username} حضر! سهره الملوك كملت بوجودك يا غالي 💖",
-                    f"<#7B68EE>🎶 يا أهلاً بـ@{user.username}! استمتع في سهره الملوك اللي ما في زيها 🌟",
+                    # 🔥 ناري
+                    f"<#FF4500>🔥 أهلاً وسهلاً @{user.username} في ديسكو مصر! يلا استمتع معانا 🎶",
+                    f"<#FF6600>🔥 @{user.username} نوّر ديسكو مصر! حللت أهلاً وحللت سهلاً 💫",
+                    f"<#FF0000>🔥 يا هلا يا @{user.username}! في ديسكو مصر النار ما بتهدأش 👑🎉",
+                    f"<#FF4500>🎤 يا أهلاً يا @{user.username}! ديسكو مصر اشتعلت بوجودك 🔥",
+                    f"<#FF6600>🎊 @{user.username} وصل! ديسكو مصر دايماً ناار 🔥🎉",
+                    # ❄️ تلجي
+                    f"<#00CED1>❄️ يا مرحبا @{user.username}! ديسكو مصر بتتشرف بيك 💎",
+                    f"<#87CEEB>❄️ @{user.username} وصل! ديسكو مصر بقت أحلى بوجودك 😍",
+                    f"<#ADD8E6>❄️ أهلاً @{user.username}! انت في أجمل سهرة في هايرايز - ديسكو مصر! 🌙",
+                    f"<#00CED1>💎 @{user.username} نوّر المكان! ديسكو مصر في أحسن حالاتها دلوقتي ❄️",
+                    f"<#87CEEB>🌊 يا هلا بـ@{user.username}! تفضل استمتع في ديسكو مصر 💃",
+                    # 💛 جولد
+                    f"<#FFD700>🏆 @{user.username} وصل! ديسكو مصر مستنياك من زمان 🎉",
+                    f"<#FFC000>👑 حياك الله @{user.username}! ديسكو مصر ترحب بيك أحسن ترحيب 🌟",
+                    f"<#FFD700>💛 @{user.username} جاء! ديسكو مصر معاك هتبقى أحلى 🎶",
+                    f"<#FFC000>🌙 @{user.username} نوّر! ديسكو مصر دايما بخير وانت بين ضهرانينا 🎊",
+                    f"<#FFD700>🥳 يا مرحبا @{user.username}! الله يعطيك العافية وانت تزيّن ديسكو مصر 👑",
+                    # ⭐ أبيض
+                    f"<#FFFFFF>⭐ @{user.username} دخل! ديسكو مصر مش هتتكمل إلا بيك 🎶",
+                    f"<#FFFFFF>✨ حياك الله @{user.username}! ديسكو مصر تشرفت بحضورك 🌙",
+                    f"<#FFFFFF>🌟 يا هلا والله @{user.username}! ورّيت علينا في ديسكو مصر 🎉",
+                    f"<#FFFFFF>💫 أهلاً @{user.username}! ديسكو مصر ملكها الأصيل رجع 🎉",
+                    f"<#FFFFFF>🎵 @{user.username} حضر! ديسكو مصر كملت بوجودك يا غالي 💖",
+                    # 🌫️ فضي
+                    f"<#C0C0C0>🌟 حياك ربي @{user.username}! ديسكو مصر ما كانت ناقصة غيرك 👑",
+                    f"<#C0C0C0>✨ يا مرحبا @{user.username}! تفضل وانبسط في ديسكو مصر 💃",
+                    f"<#C0C0C0>🎶 @{user.username} نوّر! ديسكو مصر مع كل ضيف تصير أجمل 🌸",
+                    f"<#C0C0C0>💎 حياك الله @{user.username}! ربع ديسكو مصر كلهم سعادتهم بيك 🎊",
+                    f"<#C0C0C0>🌙 يا أهلاً بـ@{user.username}! استمتع في ديسكو مصر اللي ما في زيها 🌟",
                 ]
                 message = random.choice(all_greetings)
             
@@ -3688,6 +3828,43 @@ class MyBot(BaseBot):
                 if "perm_pos" in self.settings:
                     p = self.settings["perm_pos"]
                     await self.highrise.walk_to(Position(p["x"], p["y"], p["z"], p.get("facing", "FrontRight")))
+
+            # ==================== RADIO COMMANDS ====================
+            elif msg_lower.startswith("!p ") and len(msg_lower) > 3:
+                query = message[3:].strip()
+                if not query:
+                    await self.highrise.chat("<#FF4500>🎵 استخدم: !p اسم الأغنية")
+                else:
+                    await self.highrise.chat(f"<#FFD700>🔍 بدور على: {query}...")
+                    result = await self.radio.add(query, user.username)
+                    if result is None:
+                        await self.highrise.chat(f"<#FF0000>❌ مش لاقيش '{query}'. جرب اسم تاني!")
+                    else:
+                        song, was_playing = result
+                        if was_playing:
+                            await self.highrise.chat(
+                                f"<#00CED1>✅ اتضافت للقائمة!\n"
+                                f"<#FFD700>🎶 {song['title'][:50]}\n"
+                                f"<#C0C0C0>📋 رقم {len(self.radio.queue)} في القائمة"
+                            )
+
+            elif msg_lower == "!s":
+                if self.radio.is_playing:
+                    self.radio.skip()
+                    await self.highrise.chat("<#FF4500>⏭ تم تخطي الأغنية!")
+                else:
+                    await self.highrise.chat("<#C0C0C0>📻 الراديو مش شغال دلوقتي")
+
+            elif msg_lower == "!d":
+                prev = await self.radio.previous()
+                if prev:
+                    await self.highrise.chat(f"<#00CED1>⏮ رجعنا للأغنية السابقة:\n<#FFD700>🎶 {prev['title'][:50]}")
+                else:
+                    await self.highrise.chat("<#C0C0C0>📻 مفيش أغاني سابقة")
+
+            elif msg_lower == "!q":
+                await self.highrise.chat(self.radio.get_queue_text())
+            # ==================== END RADIO COMMANDS ====================
 
             elif message.startswith("!info"):
                 parts = message.split(" ")
