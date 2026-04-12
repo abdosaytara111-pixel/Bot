@@ -21,6 +21,11 @@ try:
         sys.stdout.reconfigure(encoding='utf-8')
 except: pass
 
+# ==================== RADIO SERVER CONFIG ====================
+RADIO_API_URL = "https://d5999b3b-b34e-4494-a5d2-fc3bd0b0bdd2-00-2odzz3iju05gq.spock.replit.dev"
+RADIO_STREAM_URL = f"{RADIO_API_URL}/api/radio/stream"
+# ============================================================
+
 
 class BotRadio:
     """نظام راديو مدمج داخل البوت - يشغل مع البوت بدون سيرفر خارجي."""
@@ -3857,34 +3862,89 @@ class MyBot(BaseBot):
                     await self.highrise.chat("<#FF4500>🎵 استخدم: !p اسم الأغنية")
                 else:
                     await self.highrise.chat(f"<#FFD700>🔍 بدور على: {query}...")
-                    result = await self.radio.add(query, user.username)
-                    if result is None:
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                f"{RADIO_API_URL}/api/radio/request",
+                                json={"query": query, "requestedBy": user.username},
+                                timeout=aiohttp.ClientTimeout(total=45)
+                            ) as resp:
+                                data = await resp.json()
+                        if resp.status == 200 and data.get("success"):
+                            song = data["song"]
+                            if data.get("isQueued"):
+                                await self.highrise.chat(
+                                    f"<#00CED1>✅ اتضافت للقائمة!\n"
+                                    f"<#FFD700>🎶 {song['title'][:50]}\n"
+                                    f"<#C0C0C0>📋 رقم {data.get('queuePosition','?')} في القائمة"
+                                )
+                            else:
+                                dur = song.get("duration", 0)
+                                mins, secs = int(dur) // 60, int(dur) % 60
+                                await self.highrise.chat(
+                                    f"<#FF4500>🎵 الآن يعزف في ديسكو مصر!\n"
+                                    f"<#FFD700>🎶 {song['title'][:50]}\n"
+                                    f"<#00CED1>👤 {song.get('uploader','')[:30]}\n"
+                                    f"<#FFFFFF>⏱ {mins}:{secs:02d}  |  طلب: @{user.username}\n"
+                                    f"<#C0C0C0>🎧 استمع: {RADIO_STREAM_URL}"
+                                )
+                        else:
+                            err = data.get("error", "خطأ غير معروف")
+                            await self.highrise.chat(f"<#FF0000>❌ {err}")
+                    except Exception as e:
                         await self.highrise.chat(f"<#FF0000>❌ مش لاقيش '{query}'. جرب اسم تاني!")
-                    else:
-                        song, was_playing = result
-                        if was_playing:
-                            await self.highrise.chat(
-                                f"<#00CED1>✅ اتضافت للقائمة!\n"
-                                f"<#FFD700>🎶 {song['title'][:50]}\n"
-                                f"<#C0C0C0>📋 رقم {len(self.radio.queue)} في القائمة"
-                            )
+                        print(f"[Radio] !p error: {e}")
 
             elif msg_lower == "!s":
-                if self.radio.is_playing:
-                    self.radio.skip()
-                    await self.highrise.chat("<#FF4500>⏭ تم تخطي الأغنية!")
-                else:
-                    await self.highrise.chat("<#C0C0C0>📻 الراديو مش شغال دلوقتي")
-
-            elif msg_lower == "!d":
-                prev = await self.radio.previous()
-                if prev:
-                    await self.highrise.chat(f"<#00CED1>⏮ رجعنا للأغنية السابقة:\n<#FFD700>🎶 {prev['title'][:50]}")
-                else:
-                    await self.highrise.chat("<#C0C0C0>📻 مفيش أغاني سابقة")
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{RADIO_API_URL}/api/radio/skip",
+                            timeout=aiohttp.ClientTimeout(total=10)
+                        ) as resp:
+                            data = await resp.json()
+                    if data.get("success"):
+                        skipped = data.get("skipped")
+                        nxt = data.get("next")
+                        msg = "<#FF4500>⏭ تم تخطي الأغنية!"
+                        if skipped:
+                            msg += f"\n<#C0C0C0>كانت: {skipped['title'][:40]}"
+                        if nxt:
+                            msg += f"\n<#FFD700>🎶 الجاي: {nxt['title'][:40]}"
+                        await self.highrise.chat(msg)
+                    else:
+                        await self.highrise.chat("<#C0C0C0>📻 الراديو مش شغال دلوقتي")
+                except Exception as e:
+                    await self.highrise.chat("<#C0C0C0>📻 مش قادر أتواصل مع الراديو")
+                    print(f"[Radio] !s error: {e}")
 
             elif msg_lower == "!q":
-                await self.highrise.chat(self.radio.get_queue_text())
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            f"{RADIO_API_URL}/api/radio/queue",
+                            timeout=aiohttp.ClientTimeout(total=10)
+                        ) as resp:
+                            data = await resp.json()
+                    current = data.get("currentSong")
+                    queue = data.get("queue", [])
+                    listeners = data.get("listeners", 0)
+                    if not data.get("isPlaying") and not current:
+                        await self.highrise.chat(
+                            f"<#C0C0C0>📻 الراديو واقف\n"
+                            f"<#FFFFFF>🎧 رابط الاستماع: {RADIO_STREAM_URL}\n"
+                            f"<#FFD700>اضيف أغاني بـ !p اسم الأغنية"
+                        )
+                    else:
+                        lines = [f"<#FF4500>🎵 الآن: {current['title'][:45] if current else '---'}"]
+                        lines.append(f"<#00CED1>👥 مستمعين: {listeners}")
+                        lines.append(f"<#C0C0C0>🎧 {RADIO_STREAM_URL}")
+                        for i, s in enumerate(queue[:5], 1):
+                            lines.append(f"<#FFD700>{i}. {s['title'][:40]}")
+                        await self.highrise.chat("\n".join(lines))
+                except Exception as e:
+                    await self.highrise.chat(f"<#C0C0C0>📻 مش قادر أجيب القائمة")
+                    print(f"[Radio] !q error: {e}")
             # ==================== END RADIO COMMANDS ====================
 
             elif message.startswith("!info"):
