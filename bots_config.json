@@ -1,8 +1,8 @@
 [
     {
         "name": "Main_Bot",
-        "room_id": "695c68244e196e4c8f5082eb",
-        "token": "29b61ffaae1fef3939beb460926d8c94837f0501049fae3cae972b81c97c5bbc",
+        "room_id": "69b6ef8e54643434da29af27",
+        "token": "25f9419d315024193c2764bfa394da072c9d5c7f75e75a222b6eda9b402455bf",
         "status": "running",
         "force_restart": false
     }
